@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-11-19T04:53:57.559187Z",
+  "updated_at": "2026-11-19T04:53:59.189913Z",
   "upstream": {
     "repository": "FufuLauncher/FufuLauncher.UnlockerIsland",
     "branch": "master",
@@ -8,12 +8,13 @@
     "latest_sha": "1830f9d770ecb9c895ba98b9a933973eabe36e7a"
   },
   "build": {
-    "state": "building",
-    "stage": "lock",
+    "state": "success",
+    "stage": "complete",
     "error": null,
     "attempt_id": "44460512735.1",
     "wrapper_sha": "332f2971dba391fc9beb3c5a8f0378eb81b206d4",
-    "run_url": "https://github.com/Haku-taku/FufuLauncher.UnlockerIsland.Build/actions/runs/44460512735"
+    "run_url": "https://github.com/Haku-taku/FufuLauncher.UnlockerIsland.Build/actions/runs/44460512735",
+    "finished_at": "2026-11-19T04:53:59.189893Z"
   },
   "latest_release": {
     "schema_version": 1,
@@ -97,5 +98,6 @@
         "url": "https://github.com/Haku-taku/FufuLauncher.UnlockerIsland.Build/releases/download/upstream-1830f9d770ec-44460512735.1/build.log"
       }
     ]
-  }
+  },
+  "lock_updated": true
 }
