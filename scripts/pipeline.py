@@ -123,6 +123,10 @@ def prepare(sha):
         if not path.is_file() or "__pycache__" in path.parts:
             continue
         target = SOURCE / path.relative_to(ROOT / "overlay")
+        if not target.resolve().is_relative_to(SOURCE.resolve()):
+            raise RuntimeError(f"overlay destination escapes worktree: {target}")
+        if target.is_symlink():
+            target.unlink()
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, target)
     return SOURCE
@@ -273,9 +277,11 @@ def run(args):
     DIST.mkdir(exist_ok=True)
     (DIST / "build.log").write_text("")
     previous = {}
+    previous_loaded = args.local
     try:
         if not args.local:
             previous = load_status(repository)
+            previous_loaded = True
             status["latest_release"] = previous.get("latest_release")
         pinned = status["upstream"]["pinned_sha"]
         if args.local:
@@ -293,7 +299,8 @@ def run(args):
                 status["lock_updated"] = update_lock(repository, wrapper_sha, target)
                 if status["lock_updated"]:
                     status["upstream"]["pinned_sha"] = target
-                status["build"].update(state="success", stage="complete")
+            status["build"].update(state="success", stage="complete", finished_at=now())
+            if pinned != target or previous.get("build", {}).get("state") != "success":
                 save_status(repository, status, wrapper_sha)
             print("Upstream and build inputs unchanged; no new release needed.")
             return 0
@@ -343,7 +350,7 @@ def run(args):
         with (DIST / "build.log").open("a") as log:
             log.write(f"\nFAILED at {status['build']['stage']}: {error}\n")
         (DIST / "status.json").write_text(json.dumps(status, indent=2) + "\n")
-        if not args.local:
+        if not args.local and previous_loaded:
             try:
                 save_status(repository, status, wrapper_sha)
             except Exception as report_error:

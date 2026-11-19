@@ -23,7 +23,7 @@
 #
 # Environment overrides: JOBS, DEBUG, CLEAN, XWIN_DIR, MINHOOK_SRC,
 #                        CLANG_CL, LLD_LINK, LLVM_LIB, LLVM_RC, LLVM_ML,
-#                        ASSUME_YES (1 = skip the MinHook rm -rf prompt).
+#                        (existing invalid MINHOOK_SRC directories are never deleted).
 #
 set -euo pipefail
 
@@ -46,7 +46,6 @@ JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
 (( JOBS >= 1 )) || JOBS=1      # the pool indexes POOL[0], so 0 is not allowed
 DEBUG="${DEBUG:-0}"
 CLEAN="${CLEAN:-0}"
-ASSUME_YES="${ASSUME_YES:-0}"
 DLL_NAME="FufuLauncher.UnlockerIsland.dll"
 
 CLANG_CL="${CLANG_CL:-clang-cl}"
@@ -190,30 +189,10 @@ else
         command -v git >/dev/null 2>&1 || die "git not found (needed to fetch MinHook)
     Or point MINHOOK_SRC at an existing checkout."
 
-        # ---- destructive step guard -------------------------------------
-        # Refuse paths that are obviously not a MinHook checkout before we
-        # even ask. Cheap insurance against MINHOOK_SRC=/ or empty.
-        [[ -n "$MINHOOK_SRC" && "$MINHOOK_SRC" != "/" ]] \
-            || die "refusing to operate on MINHOOK_SRC='$MINHOOK_SRC'"
+        # Never delete an override path or block unattended builds on stdin.
+        [[ ! -e "$MINHOOK_SRC" ]] \
+            || die "MINHOOK_SRC exists but is not a MinHook checkout: $MINHOOK_SRC"
 
-        printf '\n\033[1;33mwarning:\033[0m MINHOOK_SRC is not a MinHook checkout.\n' >&2
-        printf 'The following command will be run:\n\n' >&2
-        printf '    rm -rf -- %q\n\n' "$MINHOOK_SRC" >&2
-        printf 'This is IRREVERSIBLE.\n' >&2
-
-        if [[ "$ASSUME_YES" == "1" ]]; then
-            printf 'ASSUME_YES=1 set, proceeding without prompt.\n' >&2
-        else
-            printf 'Type "yes" to proceed, anything else aborts: ' >&2
-            answer=""
-            read -r answer || true      # EOF / no stdin -> empty -> abort
-            if [[ "$answer" != "yes" ]]; then
-                die "aborted by user; MINHOOK_SRC ($MINHOOK_SRC) left untouched"
-            fi
-        fi
-
-        rm -rf -- "$MINHOOK_SRC"
-        # -----------------------------------------------------------------
         git clone --depth 1 --branch "$MINHOOK_TAG" "$MINHOOK_REPO" "$MINHOOK_SRC" >/dev/null 2>&1 \
             || die "failed to clone MinHook -- set MINHOOK_SRC to a local checkout"
     fi
