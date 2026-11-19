@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-11-19T04:53:51.396266Z",
+  "updated_at": "2026-11-19T04:53:52.869980Z",
   "upstream": {
     "repository": "FufuLauncher/FufuLauncher.UnlockerIsland",
     "branch": "master",
@@ -9,7 +9,7 @@
   },
   "build": {
     "state": "building",
-    "stage": "package",
+    "stage": "release",
     "error": null,
     "attempt_id": "44460512735.1",
     "wrapper_sha": "332f2971dba391fc9beb3c5a8f0378eb81b206d4",
