@@ -1,0 +1,108 @@
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '23 * * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Rebuild even if the last successful inputs are unchanged
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    env:
+      GH_TOKEN: ${{ github.token }}
+      FORCE_BUILD: ${{ inputs.force || false }}
+      CLANG_CL: clang-cl-19
+      LLD_LINK: lld-link-19
+      LLVM_LIB: llvm-lib-19
+      LLVM_RC: llvm-rc-19
+      LLVM_ML: llvm-ml-19
+      ASSUME_YES: '1'
+    steps:
+      # runner context is only available at step level, not in job-level env.
+      - name: Configure temporary build paths
+        run: |
+          echo "XWIN_DIR=${{ runner.temp }}/xwin" >> "${{ github.env }}"
+          echo "XWIN_CACHE=${{ runner.temp }}/xwin-cache" >> "${{ github.env }}"
+          echo "CARGO_TARGET_DIR=${{ runner.temp }}/cargo-target" >> "${{ github.env }}"
+
+      - name: Checkout build repository and pinned upstream
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name || github.event.repository.default_branch }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Run unit tests
+        run: python3 -m unittest discover -s tests -v
+
+      - name: Install LLVM 19 and build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential ca-certificates git pkg-config libssl-dev \
+            clang-19 clang-tools-19 lld-19 llvm-19 llvm-19-tools
+          command -v clang-cl-19 lld-link-19 llvm-lib-19 llvm-rc-19 llvm-ml-19 llvm-readobj-19
+          clang-cl-19 --version
+          lld-link-19 --version
+          # build.sh invokes llvm-readobj without a version suffix.
+          mkdir -p "${{ runner.temp }}/bin"
+          ln -s /usr/bin/llvm-readobj-19 "${{ runner.temp }}/bin/llvm-readobj"
+          echo "${{ runner.temp }}/bin" >> "${{ github.path }}"
+
+      - name: Restore xwin executable
+        id: xwin
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/xwin
+          key: xwin-bin-0.10.0-ubuntu24-x64-v1
+
+      - name: Install pinned xwin
+        if: steps.xwin.outputs.cache-hit != 'true'
+        run: cargo install xwin --version 0.10.0 --locked
+
+      - name: Verify xwin
+        run: xwin --version | grep -Fx 'xwin 0.10.0'
+
+      - name: Restore MSVC and Windows SDK
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.XWIN_DIR }}
+            ${{ env.XWIN_CACHE }}
+          key: xwin-0.10.0-ubuntu24-x64-v1
+
+      - name: Build and publish release
+        id: pipeline
+        run: python3 scripts/pipeline.py run
+
+      - name: Report failure before pipeline started
+        if: failure() && steps.pipeline.outcome != 'failure'
+        run: python3 scripts/pipeline.py report-setup-failure
+
+      - name: Retain distribution files and build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/
+          if-no-files-found: warn
+          retention-days: 14

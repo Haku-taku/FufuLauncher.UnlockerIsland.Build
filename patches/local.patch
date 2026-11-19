@@ -1,0 +1,580 @@
+diff --git a/.gitignore b/.gitignore
+index e7f5ddb5590d9bd3bf755d5694c8dc4f40aba2f4..2346e26f8bccf1590a6351edd41c81589bbb6024 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -487,3 +487,9 @@ gemini-debug.log
+ .coordination/
+ 
+ .idea/
++
++# Cross-compilation cache/scratch (see build.sh)
++.xwin-cache/
++.build/
++
++build.sh
+diff --git a/FufuLauncher.UnlockerIsland/AntiCensor/AssetRegion.asm b/FufuLauncher.UnlockerIsland/AntiCensor/AssetRegion.asm
+index bcb1aa8a08f470e97805f0fa4a66d5eb4568e180..5295c21c39b34c5dc19e20dfad016526a6d4e892 100644
+--- a/FufuLauncher.UnlockerIsland/AntiCensor/AssetRegion.asm
++++ b/FufuLauncher.UnlockerIsland/AntiCensor/AssetRegion.asm
+@@ -5,11 +5,12 @@ EXTERN AntiCensorOriginalComparison:QWORD
+ EXTERN AntiCensorSelectBundle:QWORD
+ PUBLIC AntiCensorCompareRegion
+ 
+-.const
++; Explicit segment syntax is supported by both ml64 and llvm-ml.
++_CONST SEGMENT READONLY
+ ALIGN 8
+ 
+ ; Asset path hashes verified in the CN 7.2 streaming and persistent indexes.
+-CostumeAssets LABEL QWORD
++CostumeAssets:
+     ; Qin
+     dq 085B867189B3901A3h  ; UI_AvatarIcon_Qin
+     dq 0DCF22DA5DE22EAD7h  ; UI_AvatarIcon_Qin_Card
+@@ -90,7 +91,8 @@ CostumeAssets LABEL QWORD
+     dq 027C51B5E4D28CAF5h  ; UI_AvatarIcon_Side_Rosaria
+     dq 0A24924D875692BCCh  ; UI_Gacha_AvatarIcon_Rosaria
+     dq 0EB6C6FA9293A2074h  ; UI_Gacha_AvatarImg_Rosaria
+-CostumeAssetsEnd LABEL QWORD
++CostumeAssetsEnd:
++_CONST ENDS
+ 
+ .code
+ 
+diff --git a/FufuLauncher.UnlockerIsland/Camera/Camera.cpp b/FufuLauncher.UnlockerIsland/Camera/Camera.cpp
+index dc95f83b645f46db77902d8314e17d44f015ca71..c3f4cdf66eb8c4b2c1bf42c8ba60eceb05ea134b 100644
+--- a/FufuLauncher.UnlockerIsland/Camera/Camera.cpp
++++ b/FufuLauncher.UnlockerIsland/Camera/Camera.cpp
+@@ -150,6 +150,12 @@ namespace Camera
+         if (now - g_LastRefresh <= 2000) return;
+         g_LastRefresh = now;
+ 
++        // Re-resolve rather than trusting the cached pointer, and drop the
++        // pointer outright when resolution fails. The game frees and reuses
++        // camera objects between scenes -- opening the map is enough -- and a
++        // cache that survives that keeps pointing at whatever allocation took
++        // the address next. Writing a camera position into that is not a
++        // no-op: it reached the UI overlay and distorted it.
+         void* camera = SafeGetMain();
+         g_Transform = nullptr;
+         g_SecondaryTransform = nullptr;
+diff --git a/FufuLauncher.UnlockerIsland/Core/Hooks.cpp b/FufuLauncher.UnlockerIsland/Core/Hooks.cpp
+index 8ac5642c0aed6023bdc9e89a807d89be5ce2d187..398c779d93b864dcf1064ca36e68351090a67451 100644
+--- a/FufuLauncher.UnlockerIsland/Core/Hooks.cpp
++++ b/FufuLauncher.UnlockerIsland/Core/Hooks.cpp
+@@ -9,6 +9,7 @@ Licensed under the AGPL-3.0 License.
+ #include "Hooks.h"
+ #include "../Scanner/Scanner.h"
+ #include "../Config/Config.h"
++#include "Hotkey.h"
+ #include "Utils.h"
+ #include "Compatibility.h"
+ #include "../MinHook/MinHook.h"
+@@ -441,21 +442,19 @@ bool Hooks::CanApplyCameraOffset()
+ }
+ 
+ static std::atomic<bool> g_IsAimingCamera{false};
++static Hotkey::Latch g_CameraOffsetHotkey;
+ 
+ static void UpdateCameraFeatures()
+ {
+     auto& cfg = Config::Get();
+-    const int cameraOffsetKey = cfg.camera_offset_key;
+-    static bool previousCameraOffsetToggle = false;
+     static bool previousFreeCameraActive = false;
+-    bool cameraOffsetToggle = cameraOffsetKey != 0 &&
+-        (GetAsyncKeyState(cameraOffsetKey) & 0x8000) != 0;
+-    if (cameraOffsetToggle && !previousCameraOffsetToggle)
++    // Re-read each tick so config reloads can rebind the hotkey.
++    const int cameraOffsetKey = cfg.camera_offset_key;
++    if (g_CameraOffsetHotkey.Pressed(cameraOffsetKey))
+     {
+         cfg.enable_camera_offset = !cfg.enable_camera_offset;
+         if (!cfg.enable_camera_offset) CameraOffset::SuspendImmediately();
+     }
+-    previousCameraOffsetToggle = cameraOffsetToggle;
+ 
+     const bool freeCameraActive = FreeCamera::IsActive();
+     if (previousFreeCameraActive && !freeCameraActive)
+@@ -489,6 +488,11 @@ static void UpdateCameraFeatures()
+     CameraOffset::Tick(!isAimingCamera && !dialogueOrCutsceneActive, false);
+ }
+ 
++// The auto cook and auto expedition keys repeat while they are held, so they
++// use `Held` rather than `Pressed`: the retry every 300 ms is the point.
++static Hotkey::Latch g_AutoCookHotkey;
++static Hotkey::Latch g_AutoExpHotkey;
++
+ int32_t WINAPI hk_ChangeFov(void* __this, float value)
+ {
+     if (!g_GameUpdateInit.load()) g_GameUpdateInit.store(true);
+@@ -533,8 +537,11 @@ int32_t WINAPI hk_ChangeFov(void* __this, float value)
+         }
+     }
+ 
+-    if (isFocused && cfg.enable_auto_cook && (GetAsyncKeyState(cfg.auto_cook_key) & 0x8000) && now - g_LastCookTime >
+-        300)
++    // Poll even while disabled so each latch observes the whole key press.
++    const bool cookKeyHeld = g_AutoCookHotkey.Held(cfg.auto_cook_key);
++    const bool expeditionKeyHeld = g_AutoExpHotkey.Held(cfg.auto_expedition_key);
++
++    if (isFocused && cfg.enable_auto_cook && cookKeyHeld && now - g_LastCookTime > 300)
+     {
+         if (canOpenUI)
+         {
+@@ -543,8 +550,7 @@ int32_t WINAPI hk_ChangeFov(void* __this, float value)
+             std::cout << "[Hotkey] Auto Cook function triggered." << std::endl;
+         }
+     }
+-    if (isFocused && cfg.enable_auto_expedition && (GetAsyncKeyState(cfg.auto_expedition_key) & 0x8000) && now -
+-        g_LastExpTime > 300)
++    if (isFocused && cfg.enable_auto_expedition && expeditionKeyHeld && now - g_LastExpTime > 300)
+     {
+         if (canOpenUI)
+         {
+diff --git a/FufuLauncher.UnlockerIsland/Core/Hotkey.h b/FufuLauncher.UnlockerIsland/Core/Hotkey.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..740cc7c40326d23c984b4cabc4de8846da9a8bd2
+--- /dev/null
++++ b/FufuLauncher.UnlockerIsland/Core/Hotkey.h
+@@ -0,0 +1,156 @@
++﻿/*
++Copyright (c) FufuLauncher Dev Team. All rights reserved.
++Licensed under the AGPL-3.0 License.
++*/
++#pragma once
++#ifndef WIN32_LEAN_AND_MEAN
++#define WIN32_LEAN_AND_MEAN
++#endif
++#include <windows.h>
++#include <atomic>
++
++// Hotkeys, and what counts as one.
++//
++// Every binding in config.ini is a single key, so a modified key is a different
++// shortcut and must not fire it: with FreeCamKey = Insert, Ctrl+Insert belongs
++// to whatever else asked for it, not to us. Every hotkey check in the plugin
++// goes through this header so that rule lives in one place.
++//
++// Header-only, like Utils.h: `inline` variables give the key table one instance
++// across all translation units, which is what lets the free camera's low-level
++// keyboard hook feed the state every other module reads.
++namespace Hotkey {
++
++    // A modifier and the two side-specific codes that stand for it.
++    struct Family {
++        int generic;    // what GetAsyncKeyState reports for either side
++        int left;
++        int right;
++    };
++
++    // A hotkey bound to a member of a family is not disqualified by that
++    // family: Shift on its own is a key like any other, Ctrl+Shift+that is not.
++    inline constexpr Family FAMILIES[] = {
++        { VK_CONTROL, VK_LCONTROL, VK_RCONTROL },
++        { VK_SHIFT,   VK_LSHIFT,   VK_RSHIFT   },
++        { VK_MENU,    VK_LMENU,    VK_RMENU    },
++        // The Windows key has no generic code; either side stands for it.
++        { VK_LWIN,    VK_LWIN,     VK_RWIN     },
++    };
++
++    // Key states as the low-level keyboard hook saw them.
++    //
++    // That hook exists to swallow the free camera's flight keys, and a
++    // swallowed key is hidden from GetAsyncKeyState as well -- measured under
++    // Wine, the state reads 0 while the key is physically held. The hook is
++    // then the only thing that still sees those keys, so it records every
++    // event here, including the ones it goes on to swallow.
++    inline std::atomic<bool> g_Down[256] = {};
++
++    // Record one key event. Called by the hook for every key, before it
++    // decides whether to swallow it.
++    inline void NoteKeyEvent(int vk, bool down) {
++        if (vk >= 0 && vk < 256) {
++            g_Down[vk].store(down, std::memory_order_relaxed);
++        }
++    }
++
++    // Is `vk` held down right now?
++    //
++    // The hook's table and the ordinary poll are combined rather than chosen
++    // between: the table is the only one that sees a swallowed key, and the
++    // poll is the only one that knows about a key that was already down when
++    // the hook went in. Neither can invent a key that is not held.
++    inline bool IsDown(int vk) {
++        if (vk <= 0 || vk >= 256) return false;   // 0 is "unbound" in config.ini
++        if (g_Down[vk].load(std::memory_order_relaxed)) return true;
++        if ((GetAsyncKeyState(vk) & 0x8000) != 0) return true;
++        // A low-level hook reports a modifier by its side-specific code, so a
++        // generic one (VK_SHIFT, VK_CONTROL, VK_MENU) never gets a table entry
++        // of its own -- and under Wine the poll above cannot see a key the hook
++        // is swallowing. Ask about both sides.
++        switch (vk) {
++        case VK_SHIFT:   return IsDown(VK_LSHIFT) || IsDown(VK_RSHIFT);
++        case VK_CONTROL: return IsDown(VK_LCONTROL) || IsDown(VK_RCONTROL);
++        case VK_MENU:    return IsDown(VK_LMENU) || IsDown(VK_RMENU);
++        default: return false;
++        }
++    }
++
++    // Is any key of `family` held?
++    inline bool FamilyDown(const Family& family) {
++        return IsDown(family.generic) || IsDown(family.left) ||
++            IsDown(family.right);
++    }
++
++    inline bool InFamily(const Family& family, int vk) {
++        return vk == family.generic || vk == family.left || vk == family.right;
++    }
++
++    // Is `vk` held as a bare key, with no modifier held as part of a shortcut?
++    inline bool IsSolo(int vk) {
++        if (!IsDown(vk)) return false;
++        for (const Family& family : FAMILIES) {
++            if (!InFamily(family, vk) && FamilyDown(family)) return false;
++        }
++        return true;
++    }
++
++    // One hotkey's state, to be checked once per tick.
++    //
++    // The latch is what carries "no modifiers" across a whole press. Asking
++    // only at the instant a hotkey acts would leave the tail of a Ctrl+Insert
++    // looking like a bare Insert: the key is still physically down when Ctrl
++    // comes up, so releasing the modifier first would fire the very binding
++    // the shortcut was meant not to reach.
++    class Latch {
++    public:
++        // Is the key held as a bare key? For hotkeys that repeat while held.
++        //
++        // Only one of `Held` and `Pressed` may be used for a given latch.
++        bool Held(int vk) {
++            Update(vk);
++            return armed_ && solo_;
++        }
++
++        // Is this the first tick of such a hold? For hotkeys that act once.
++        bool Pressed(int vk) {
++            Update(vk);
++            if (!armed_ || !solo_ || fired_) return false;
++            fired_ = true;
++            return true;
++        }
++
++    private:
++        void Update(int vk) {
++            // A rebind (config.ini was reloaded) starts over instead of
++            // carrying the old key's state into the new one.
++            if (vk != vk_) {
++                vk_ = vk;
++                down_ = false;
++                armed_ = false;
++                fired_ = false;
++            }
++            const bool down = IsDown(vk);
++            const bool solo = down && IsSolo(vk);
++            if (down && !down_) {
++                // Whether a press counts is decided when it starts: one that
++                // begins with a modifier held stays disarmed until the key has
++                // been released and pressed again on its own.
++                armed_ = solo;
++                fired_ = false;
++            } else if (!down) {
++                armed_ = false;
++                fired_ = false;
++            }
++            solo_ = solo;
++            down_ = down;
++        }
++
++        int vk_ = 0;
++        bool down_ = false;    // Key state at the previous check.
++        bool solo_ = false;    // Held as a bare key at the previous check.
++        bool armed_ = false;   // The current hold began as a bare press.
++        bool fired_ = false;   // `Pressed` has already answered for this hold.
++    };
++}
+diff --git a/FufuLauncher.UnlockerIsland/Core/dllmain.cpp b/FufuLauncher.UnlockerIsland/Core/dllmain.cpp
+index a8d757eecb30fdc811fc2dec61dc94437351ec90..f17b8cb5bcad6ce8f784685b8a999e5f040460cb 100644
+--- a/FufuLauncher.UnlockerIsland/Core/dllmain.cpp
++++ b/FufuLauncher.UnlockerIsland/Core/dllmain.cpp
+@@ -22,6 +22,7 @@ Licensed under the AGPL-3.0 License.
+ 
+ #include "../Config/Config.h"
+ #include "Hooks.h"
++#include "Hotkey.h"
+ 
+ #pragma comment(lib, "psapi.lib")
+ #pragma comment(lib, "wininet.lib")
+@@ -579,6 +580,10 @@ void MainWorker(HMODULE hMod)
+     std::string configPath = Config::GetConfigPath();
+     FILETIME lastConfigWriteTime = GetFileLastWriteTime(configPath);
+ 
++    // Each latch notices when config.ini rebinds its key.
++    static Hotkey::Latch g_ReloadHotkey;
++    static Hotkey::Latch g_CraftHotkey;
++
+     while (true)
+     {
+         auto& cfg = Config::Get();
+@@ -591,14 +596,19 @@ void MainWorker(HMODULE hMod)
+         }
+         bool isFocused = (foregroundProcessId == GetCurrentProcessId());
+ 
+-        if (isFocused && (GetAsyncKeyState(cfg.toggle_key) & 0x8000))
++        // Poll regardless of focus so each latch observes the whole key press.
++        const bool reloadKeyHeld = g_ReloadHotkey.Held(cfg.toggle_key);
++        const bool craftKeyHeld = g_CraftHotkey.Held(cfg.craft_key);
++
++        // Reloading and opening the craft page repeat while the key is held.
++        if (isFocused && reloadKeyHeld)
+         {
+             Config::Load();
+             Hooks::TriggerReloadPopup();
+             Sleep(500);
+         }
+ 
+-        if (isFocused && cfg.craft_key != 0 && (GetAsyncKeyState(cfg.craft_key) & 0x8000))
++        if (isFocused && craftKeyHeld)
+         {
+             Hooks::RequestOpenCraft();
+             Sleep(500);
+diff --git a/FufuLauncher.UnlockerIsland/FreeCamera/FreeCamera.cpp b/FufuLauncher.UnlockerIsland/FreeCamera/FreeCamera.cpp
+index a9487e2434e569425dbea0dd9a8a4c29a7321387..8f6fb845db3c7a07b16078f45263f4dea1cf32c8 100644
+--- a/FufuLauncher.UnlockerIsland/FreeCamera/FreeCamera.cpp
++++ b/FufuLauncher.UnlockerIsland/FreeCamera/FreeCamera.cpp
+@@ -6,6 +6,7 @@ Licensed under the AGPL-3.0 License.
+ 
+ #include "../Camera/Camera.h"
+ #include "../Config/Config.h"
++#include "../Core/Hotkey.h"
+ 
+ #include <atomic>
+ #include <iostream>
+@@ -29,6 +30,9 @@ namespace FreeCamera
+         WNDPROC g_OldWndProc = nullptr;
+         HHOOK g_KbHook = nullptr;
+ 
++        Hotkey::Latch g_FreeCamHotkey;
++        Hotkey::Latch g_FreeCamLockHotkey;
++
+         bool IsFlightKey(DWORD key)
+         {
+             auto& config = Config::Get();
+@@ -43,11 +47,48 @@ namespace FreeCamera
+             if (nCode >= 0 && lParam)
+             {
+                 auto* keyboard = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
+-                if (IsFlightKey(keyboard->vkCode)) return 1;
++                const DWORD key = keyboard->vkCode;
++                // Before the swallow test: Hotkey has to keep seeing a key that
++                // is about to be hidden from GetAsyncKeyState.
++                Hotkey::NoteKeyEvent(static_cast<int>(key),
++                    wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN);
++                if (IsFlightKey(key)) return 1;
+             }
+             return CallNextHookEx(g_KbHook, nCode, wParam, lParam);
+         }
+ 
++
++        // A low-level hook runs on the thread that installed it: the system
++        // queues the callback there and blocks the input path until it
++        // returns. Under Wine that wait gives up after 2s, so owning the hook
++        // from a thread with no message loop added a 2s stall to every
++        // keystroke (mouse was unaffected -- only WH_KEYBOARD_LL is set).
++        // This thread exists purely to own the hook and pump for it.
++        DWORD WINAPI KbHookThread(LPVOID)
++        {
++            // Installed unconditionally. Whether the hook swallows anything
++            // is IsFlightKey's call, and that already requires the free
++            // camera to be active. Gating the install on enable_free_cam
++            // instead left the hook missing whenever the setting was turned
++            // on after startup -- config.ini is hot-reloaded -- and with no
++            // hook nothing filled Hotkey's key table.
++            g_KbHook = SetWindowsHookExA(
++                WH_KEYBOARD_LL, KbProc, GetModuleHandleA(nullptr), 0);
++            if (!g_KbHook) {
++                std::cout << "   -> [WARN] Keyboard hook unavailable; flight "
++                             "keys are swallowed only while the game window "
++                             "is focused." << std::endl;
++                return 0;
++            }
++
++            MSG msg;
++            while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
++                TranslateMessage(&msg);
++                DispatchMessageW(&msg);
++            }
++            return 0;
++        }
++
+         LRESULT CALLBACK WndProcHook(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+         {
+             if (g_Active.load(std::memory_order_relaxed) &&
+@@ -56,6 +97,12 @@ namespace FreeCamera
+                 if (msg == WM_KEYDOWN || msg == WM_KEYUP ||
+                     msg == WM_SYSKEYDOWN || msg == WM_SYSKEYUP)
+                 {
++                    // Recorded before the swallow, like KbProc does: a key
++                    // this window procedure hides from the game is one the
++                    // free camera still has to see. This path is the one that
++                    // survives when the low-level hook is unavailable.
++                    Hotkey::NoteKeyEvent(static_cast<int>(wParam),
++                        msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN);
+                     if (IsFlightKey(static_cast<DWORD>(wParam))) return 0;
+                 }
+                 if (msg == WM_INPUT)
+@@ -79,11 +126,7 @@ namespace FreeCamera
+                                                        raw->data.mouse.lLastY);
+                                 return 0;
+                             }
+-                            if (raw->header.dwType == RIM_TYPEKEYBOARD &&
+-                                IsFlightKey(raw->data.keyboard.VKey))
+-                            {
+-                                return 0;
+-                            }
++
+                         }
+                     }
+                 }
+@@ -99,16 +142,15 @@ namespace FreeCamera
+             g_OldWndProc = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(
+                 hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(WndProcHook)));
+ 
+-            RAWINPUTDEVICE devices[2] = {};
+-            devices[0].usUsagePage = 0x01;
+-            devices[0].usUsage = 0x02;
+-            devices[0].dwFlags = RIDEV_INPUTSINK;
+-            devices[0].hwndTarget = hwnd;
+-            devices[1].usUsagePage = 0x01;
+-            devices[1].usUsage = 0x06;
+-            devices[1].dwFlags = RIDEV_INPUTSINK;
+-            devices[1].hwndTarget = hwnd;
+-            RegisterRawInputDevices(devices, 2, sizeof(RAWINPUTDEVICE));
++            // Mouse-only raw input. Registering the keyboard (usUsage 0x06)
++            // too would compete with the game's own keyboard registration;
++            // the free camera only needs the mouse deltas.
++            RAWINPUTDEVICE device = {};
++            device.usUsagePage = 0x01;
++            device.usUsage = 0x02; // mouse
++            device.dwFlags = RIDEV_INPUTSINK;
++            device.hwndTarget = hwnd;
++            RegisterRawInputDevices(&device, 1, sizeof(RAWINPUTDEVICE));
+         }
+ 
+         void ApplyNow()
+@@ -162,8 +204,6 @@ namespace FreeCamera
+ 
+         DWORD WINAPI InputThread(LPVOID)
+         {
+-            bool previousToggle = false;
+-            bool previousLock = false;
+             LARGE_INTEGER frequency, previousTime, currentTime;
+             QueryPerformanceFrequency(&frequency);
+             QueryPerformanceCounter(&previousTime);
+@@ -188,23 +228,20 @@ namespace FreeCamera
+                     !config.enable_free_cam)
+                 {
+                     if (g_Active.load(std::memory_order_relaxed)) ToggleActive();
+-                    previousToggle = false;
+-                    previousLock = false;
++                    // Keep the latches watching while the feature is off, so
++                    // that the next check sees one whole press rather than
++                    // starting in the middle of one.
++                    g_FreeCamHotkey.Held(config.free_cam_key);
++                    g_FreeCamLockHotkey.Held(config.free_cam_lock_key);
+                     QueryPerformanceCounter(&previousTime);
+                     continue;
+                 }
+ 
+-                bool toggle =
+-                    (GetAsyncKeyState(config.free_cam_key) & 0x8000) != 0;
+-                if (toggle && !previousToggle) ToggleActive();
+-                previousToggle = toggle;
++                if (g_FreeCamHotkey.Pressed(config.free_cam_key)) ToggleActive();
+ 
+-                bool lockKey =
+-                    (GetAsyncKeyState(config.free_cam_lock_key) & 0x8000) != 0;
+-                if (lockKey && !previousLock &&
++                if (g_FreeCamLockHotkey.Pressed(config.free_cam_lock_key) &&
+                     g_Active.load(std::memory_order_relaxed))
+                     ToggleLock();
+-                previousLock = lockKey;
+ 
+                 QueryPerformanceCounter(&currentTime);
+                 float deltaSeconds = static_cast<float>(
+@@ -234,39 +271,39 @@ namespace FreeCamera
+                     Camera::RotateVector(rotation, {1, 0, 0});
+ 
+                 float speed = config.free_cam_move_speed;
+-                if (GetAsyncKeyState(VK_SHIFT) & 0x8000)
++                if (Hotkey::IsDown(VK_SHIFT))
+                 {
+                     speed *= config.free_cam_sprint_mult;
+                 }
+                 float step = speed * deltaSeconds;
+ 
+                 Vector3 position = g_FreeCamPos;
+-                if (GetAsyncKeyState('W') & 0x8000)
++                if (Hotkey::IsDown('W'))
+                 {
+                     position.x += forward.x * step;
+                     position.y += forward.y * step;
+                     position.z += forward.z * step;
+                 }
+-                if (GetAsyncKeyState('S') & 0x8000)
++                if (Hotkey::IsDown('S'))
+                 {
+                     position.x -= forward.x * step;
+                     position.y -= forward.y * step;
+                     position.z -= forward.z * step;
+                 }
+-                if (GetAsyncKeyState('D') & 0x8000)
++                if (Hotkey::IsDown('D'))
+                 {
+                     position.x += right.x * step;
+                     position.y += right.y * step;
+                     position.z += right.z * step;
+                 }
+-                if (GetAsyncKeyState('A') & 0x8000)
++                if (Hotkey::IsDown('A'))
+                 {
+                     position.x -= right.x * step;
+                     position.y -= right.y * step;
+                     position.z -= right.z * step;
+                 }
+-                if (GetAsyncKeyState(VK_SPACE) & 0x8000) position.y += step;
+-                if (GetAsyncKeyState(VK_CONTROL) & 0x8000) position.y -= step;
++                if (Hotkey::IsDown(VK_SPACE)) position.y += step;
++                if (Hotkey::IsDown(VK_CONTROL)) position.y -= step;
+                 g_FreeCamPos = position;
+             }
+             return 0;
+@@ -283,11 +320,13 @@ namespace FreeCamera
+             return;
+         }
+ 
+-        g_KbHook = SetWindowsHookExA(
+-            WH_KEYBOARD_LL, KbProc, GetModuleHandleA(nullptr), 0);
+         g_Ready.store(true, std::memory_order_relaxed);
+         std::cout << "   -> FreeCamera ready." << std::endl;
+ 
++        // The keyboard hook needs its own pumping thread -- see KbHookThread.
++        // InputThread cannot host it: it sleeps for 15s and polls for the game
++        // window before its message loop starts.
++        CreateThread(nullptr, 0, KbHookThread, nullptr, 0, nullptr);
+         CreateThread(nullptr, 0, InputThread, nullptr, 0, nullptr);
+         std::cout << "   -> Free-camera input window hook scheduled." << std::endl;
+     }
+diff --git a/FufuLauncher.UnlockerIsland/FufuLauncher.UnlockerIsland.vcxproj b/FufuLauncher.UnlockerIsland/FufuLauncher.UnlockerIsland.vcxproj
+index 9e2aec3665b389c600911dcbc9b0cbfd0c3d9850..20a66341d76d3a3e36ba08e8c73cb14a2300ff5c 100644
+--- a/FufuLauncher.UnlockerIsland/FufuLauncher.UnlockerIsland.vcxproj
++++ b/FufuLauncher.UnlockerIsland/FufuLauncher.UnlockerIsland.vcxproj
+@@ -169,6 +169,7 @@
+         <ClInclude Include="MinHook\MinHook.h"/>
+         <ClInclude Include="Scanner\Scanner.h"/>
+         <ClInclude Include="Core\Utils.h"/>
++        <ClInclude Include="Core\Hotkey.h"/>
+     </ItemGroup>
+     <ItemGroup>
+         <ClCompile Include="Config\Config.cpp"/>
