@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-11-25T17:24:39.381585Z",
+  "updated_at": "2026-11-25T17:24:45.524815Z",
   "upstream": {
     "repository": "FufuLauncher/FufuLauncher.UnlockerIsland",
     "branch": "master",
@@ -9,7 +9,7 @@
   },
   "build": {
     "state": "building",
-    "stage": "release",
+    "stage": "lock",
     "error": null,
     "attempt_id": "45664256003.1",
     "wrapper_sha": "332f2971dba391fc9beb3c5a8f0378eb81b206d4",
@@ -17,13 +17,13 @@
   },
   "latest_release": {
     "schema_version": 1,
-    "version": "upstream-1830f9d770ec-44460512735.1",
-    "built_at": "2026-11-19T04:53:52.744854Z",
+    "version": "upstream-7879bc1dc010-45664256003.1",
+    "built_at": "2026-11-25T17:24:39.208758Z",
     "upstream": {
       "repository": "FufuLauncher/FufuLauncher.UnlockerIsland",
       "branch": "master",
-      "sha": "1830f9d770ecb9c895ba98b9a933973eabe36e7a",
-      "url": "https://github.com/FufuLauncher/FufuLauncher.UnlockerIsland/commit/1830f9d770ecb9c895ba98b9a933973eabe36e7a"
+      "sha": "7879bc1dc010bbc4bf4d9ca022146edba9fbd83c",
+      "url": "https://github.com/FufuLauncher/FufuLauncher.UnlockerIsland/commit/7879bc1dc010bbc4bf4d9ca022146edba9fbd83c"
     },
     "wrapper": {
       "repository": "Haku-taku/FufuLauncher.UnlockerIsland.Build",
@@ -36,65 +36,65 @@
       "repository": "CodeCubist/FufuLauncher--Plugins",
       "revision": "06da24fcf988d0da41e11fe1d764c32fc573e332",
       "sha256": "ad658369f2461b64c8bd12bba9993ba9ecc362f84d693ef527d962856fa2a915",
-      "fetched_at": "2026-11-19T04:53:51.387494+00:00"
+      "fetched_at": "2026-11-25T17:24:37.341004+00:00"
     },
-    "run_url": "https://github.com/Haku-taku/FufuLauncher.UnlockerIsland.Build/actions/runs/44460512735",
+    "run_url": "https://github.com/Haku-taku/FufuLauncher.UnlockerIsland.Build/actions/runs/45664256003",
     "target": "windows-x86_64",
     "toolchain": {
       "clang": "Ubuntu clang version 19.1.1 (1ubuntu1~24.04.2)",
       "xwin": "xwin 0.10.0",
       "minhook_sha": "9fbd087432700d73fc571118d6a9697a36443d88"
     },
-    "release_url": "https://github.com/Haku-taku/FufuLauncher.UnlockerIsland.Build/releases/tag/upstream-1830f9d770ec-44460512735.1",
+    "release_url": "https://github.com/Haku-taku/FufuLauncher.UnlockerIsland.Build/releases/tag/upstream-7879bc1dc010-45664256003.1",
     "assets": [
       {
         "name": "FuFuPlugin-windows-x86_64.zip",
         "kind": "plugin",
-        "size": 311172,
-        "sha256": "347b68ed0375a56ebad550d0c5bb8f0f1ad684ef5adf19e16a512ec285ac9306",
-        "url": "https://github.com/Haku-taku/FufuLauncher.UnlockerIsland.Build/releases/download/upstream-1830f9d770ec-44460512735.1/FuFuPlugin-windows-x86_64.zip"
+        "size": 312135,
+        "sha256": "49cbc9f001d10a4447c816f303667d6adda027b69f7dcb025ecbab0576a1c0a5",
+        "url": "https://github.com/Haku-taku/FufuLauncher.UnlockerIsland.Build/releases/download/upstream-7879bc1dc010-45664256003.1/FuFuPlugin-windows-x86_64.zip"
       },
       {
         "name": "FufuLauncher.UnlockerIsland.dll",
         "kind": "dll",
-        "size": 756736,
-        "sha256": "5ed544f2a655275121611b113ade7780b690c9fb8228b85e2bef98ea0fa41dc7",
-        "url": "https://github.com/Haku-taku/FufuLauncher.UnlockerIsland.Build/releases/download/upstream-1830f9d770ec-44460512735.1/FufuLauncher.UnlockerIsland.dll"
+        "size": 758784,
+        "sha256": "610f506b2aa9105c293fd736ffac9f32293f82d700469bc1684b9be02fd4ef1f",
+        "url": "https://github.com/Haku-taku/FufuLauncher.UnlockerIsland.Build/releases/download/upstream-7879bc1dc010-45664256003.1/FufuLauncher.UnlockerIsland.dll"
       },
       {
         "name": "FuFuPlugin-source.tar.gz",
         "kind": "source",
-        "size": 316708,
-        "sha256": "8c5b3cde75b49b6b37365eee5f25c3bf92c52753cf5e128202e2496478c4f416",
-        "url": "https://github.com/Haku-taku/FufuLauncher.UnlockerIsland.Build/releases/download/upstream-1830f9d770ec-44460512735.1/FuFuPlugin-source.tar.gz"
+        "size": 317747,
+        "sha256": "8e849156a9ec0a037200e7aeb0ccb36b437b2164d543e46af54d199041e50572",
+        "url": "https://github.com/Haku-taku/FufuLauncher.UnlockerIsland.Build/releases/download/upstream-7879bc1dc010-45664256003.1/FuFuPlugin-source.tar.gz"
       },
       {
         "name": "config.ini",
         "kind": "config",
         "size": 5285,
         "sha256": "ad658369f2461b64c8bd12bba9993ba9ecc362f84d693ef527d962856fa2a915",
-        "url": "https://github.com/Haku-taku/FufuLauncher.UnlockerIsland.Build/releases/download/upstream-1830f9d770ec-44460512735.1/config.ini"
+        "url": "https://github.com/Haku-taku/FufuLauncher.UnlockerIsland.Build/releases/download/upstream-7879bc1dc010-45664256003.1/config.ini"
       },
       {
         "name": "config-source.json",
         "kind": "config-provenance",
         "size": 495,
-        "sha256": "079fd573f7c853a9d93ae49ef3d62b69c55e083a9c18807134df719af47dc3cf",
-        "url": "https://github.com/Haku-taku/FufuLauncher.UnlockerIsland.Build/releases/download/upstream-1830f9d770ec-44460512735.1/config-source.json"
+        "sha256": "106fadcbb281dd97ec68fd5af074cfbaade9aa1e9277ae4b7ce72585e3fa21bb",
+        "url": "https://github.com/Haku-taku/FufuLauncher.UnlockerIsland.Build/releases/download/upstream-7879bc1dc010-45664256003.1/config-source.json"
       },
       {
         "name": "build-info.json",
         "kind": "build-provenance",
         "size": 1464,
-        "sha256": "6646033a0e06d163e70d58472ec9135620053f2de05c7404097ddc8869b0c325",
-        "url": "https://github.com/Haku-taku/FufuLauncher.UnlockerIsland.Build/releases/download/upstream-1830f9d770ec-44460512735.1/build-info.json"
+        "sha256": "9d5234abd250df64ec45dbc152f18fd3a2e9023ae1d5e1e1cb9cb560ddd2f00b",
+        "url": "https://github.com/Haku-taku/FufuLauncher.UnlockerIsland.Build/releases/download/upstream-7879bc1dc010-45664256003.1/build-info.json"
       },
       {
         "name": "build.log",
         "kind": "log",
-        "size": 2252,
-        "sha256": "e2bc6264ce4f090ff6b624787be463845444a1f589b1b619ccae92d8d0e9df00",
-        "url": "https://github.com/Haku-taku/FufuLauncher.UnlockerIsland.Build/releases/download/upstream-1830f9d770ec-44460512735.1/build.log"
+        "size": 2232,
+        "sha256": "58770445aa6732098080c432b6ceb89e51c504a0c24c8f5258b01e3f47959f71",
+        "url": "https://github.com/Haku-taku/FufuLauncher.UnlockerIsland.Build/releases/download/upstream-7879bc1dc010-45664256003.1/build.log"
       }
     ]
   }
